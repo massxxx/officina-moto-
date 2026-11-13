@@ -1,0 +1,53 @@
+name: APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Prova il gioco (sintassi)
+        run: node --check web/gioco.js
+      - name: Installa Capacitor
+        run: npm install
+      - name: Crea il progetto Android
+        run: |
+          npx cap add android
+          npx cap sync android
+      - name: Icona, versione e orientamento
+        run: |
+          set -e
+          M=android/app/src/main/AndroidManifest.xml
+          sed -i 's/<activity /<activity android:screenOrientation="portrait" /' $M
+          G=android/app/build.gradle
+          sed -i "s/versionCode 1/versionCode ${GITHUB_RUN_NUMBER}/" $G
+          sed -i "s/versionName \"1.0\"/versionName \"1.0.${GITHUB_RUN_NUMBER}\"/" $G
+          python3 android-extra/icona.py android/app/src/main/res
+      - name: Compila l'APK
+        run: |
+          mkdir -p ~/.android
+          cp android-extra/debug.keystore ~/.android/debug.keystore
+          cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../OfficinaMoto.apk
+      - name: Pubblica la release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app
+          name: Officina Moto
+          body: |
+            Scarica **OfficinaMoto.apk** e aprilo sul telefono Android (consenti l'installazione da questa fonte).
+            Versione 1.0.${{ github.run_number }}
+          files: OfficinaMoto.apk
+          make_latest: true

@@ -1,0 +1,6 @@
+{
+  "appId": "it.massxxx.officinamoto",
+  "appName": "Officina Moto",
+  "webDir": "web",
+  "android": { "backgroundColor": "#1b1d22" }
+}
