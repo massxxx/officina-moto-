@@ -154,9 +154,12 @@ function nuovoStato() {
     attrezzi: { chiavi: true }, clienti: [], usato: [], magazzino: [], autoAcc: true,
     squadra: null,
     st: { lavori: 0, mano: 0, diag: 0, streak: 0, best: 0, usatoV: 0, epocaV: 0, custom: 0, tipi: {}, guad: 0, gare: 0, podi: 0, vitt: 0, titoli: 0, via: 0, tierMax: -1 },
+    cheat: nuovoTrucchi(),
     trag: {}, tempo: 0, ultimo: Date.now(), tCli: 2, tUs: 0, id: 1, inizio: Date.now(),
   };
 }
+function nuovoTrucchi() { return { menu: false, soldiInf: false, tempo: 1, mecIst: false, raffica: false, facile: false, auto: false, vinci: false }; }
+const TR = () => S.cheat || (S.cheat = nuovoTrucchi());
 function carica() {
   try { const t = localStorage.getItem(SAVE); if (t) { const o = JSON.parse(t); if (o && o.v === 1) return o; } } catch (e) {}
   return null;
@@ -334,9 +337,10 @@ function guadagna(x, ip) {
   S.soldi += x; S.st.guad += x;
   if (ip != null) floaters.push({ ip, txt: '+' + eur(x), t: 0 });
 }
-function spendi(x) { if (S.soldi < x) { toast('Non hai abbastanza soldi'); return false; } S.soldi -= x; return true; }
+function spendi(x) { if (TR().soldiInf) return true; if (S.soldi < x) { toast('Non hai abbastanza soldi'); return false; } S.soldi -= x; return true; }
 function pagaRicambio(t) {
   if (t.pagato || t.p === 'diagnosi') return true;
+  if (TR().soldiInf) { t.pagato = true; return true; }
   const c = PEZZI[t.p].costo;
   if (S.soldi < c) return false;
   S.soldi -= c; t.pagato = true; return true;
@@ -422,6 +426,7 @@ function avviaGara() {
   const par = PILOTI.map((n, i) => ({ nome: n, perf: F * (0.78 + 0.44 * i / 10), noi: false, col: COLORI[i % COLORI.length] }));
   par.push({ nome: 'Il tuo pilota', perf: mia, noi: true, col: q.colore });
   for (const p of par) p.sc = p.perf * (0.88 + 0.24 * rnd());
+  if (TR().vinci) { const me = par.find(p => p.noi); me.sc = Math.max(...par.filter(p => !p.noi).map(p => p.sc)) * 1.05; }
   const ord = par.slice().sort((a, b) => b.sc - a.sc);
   ord.forEach((p, i) => { p.pos = i; p.fase = rnd() * 6; });
   gara = { t: 0, par, circ: CIRCUITI[q.gara % CIRCUITI.length] };
@@ -513,7 +518,7 @@ function controllaTraguardi() {
 }
 
 /* ---------- LOGICA A TEMPO ---------- */
-function intervalloClienti() { return Math.max(0.25, 14 / ((1 + 0.45 * (S.ponti.length - 1)) * (1 + 0.2 * S.sede) * (1 + 0.04 * famaLvl()))); }
+function intervalloClienti() { if (TR().raffica) return 0.3; return Math.max(0.25, 14 / ((1 + 0.45 * (S.ponti.length - 1)) * (1 + 0.2 * S.sede) * (1 + 0.04 * famaLvl()))); }
 const maxCoda = () => 3 + S.ponti.length;
 function tick(dt) {
   S.tempo += dt;
@@ -541,7 +546,7 @@ function tick(dt) {
     const t = taskCorrente(lav); if (!t) return;
     if (!pagaRicambio(t)) { lav.aspetta = true; return; }
     lav.aspetta = false;
-    t.prog += dt / tempoTask(t.p, P.mecc);
+    t.prog += TR().mecIst ? 1 : dt / tempoTask(t.p, P.mecc);
     if (t.prog >= 1) completaTask(ip, t, false);
   });
   controllaTraguardi();
@@ -762,7 +767,7 @@ function rTraguardi() {
   return h;
 }
 function aggiornaVivi() {
-  $('#soldi').textContent = eur(S.soldi);
+  $('#soldi').textContent = TR().soldiInf ? '€ ∞' : eur(S.soldi);
   const f = famaLvl(), a = sogliaFama(f), b = sogliaFama(f + 1);
   $('#famaL').textContent = '⭐ Fama ' + f + ' · ' + SEDI[S.sede].nome;
   $('#famaB').style.width = (100 * (S.fama - a) / (b - a)) + '%';
@@ -788,7 +793,7 @@ function apriMano(ip, k) {
   const P = S.ponti[ip]; const lav = P.lav; if (!lav) return;
   const t = lav.tasks[k]; if (!t || t.done) return;
   if (t.p !== 'diagnosi' && !t.pagato) {
-    if (S.soldi < PEZZI[t.p].costo) { toast('Non hai i soldi per il ricambio (' + eur(PEZZI[t.p].costo) + ')'); return; }
+    if (!TR().soldiInf && S.soldi < PEZZI[t.p].costo) { toast('Non hai i soldi per il ricambio (' + eur(PEZZI[t.p].costo) + ')'); return; }
   }
   const fine = (ok, primoColpo) => {
     if (!ok) return;
@@ -796,6 +801,7 @@ function apriMano(ip, k) {
     if (S.ponti[ip].lav !== lav) return;
     completaTask(ip, t, true);
   };
+  if (TR().auto) { if (t.p === 'diagnosi') S.st.diag++; streak(true); fine(true); return; }
   if (t.p === 'diagnosi') mgDiagnosi(lav, fine);
   else { const g = PEZZI[t.p].gioco; (g === 'bulloni' ? mgBulloni : g === 'regola' ? mgRegola : mgTieni)(t.p, fine); }
 }
@@ -813,7 +819,7 @@ function fineMg(ok, testo, cb) {
 function mgBulloni(p, cb) {
   const n = rnd() < .5 ? 4 : 6;
   const ord = n === 4 ? [0, 2, 1, 3] : [0, 3, 1, 4, 2, 5];
-  let passo = 0, errori = 0, tempo = 9, finito = false;
+  let passo = 0, errori = 0, tempo = TR().facile ? 30 : 9, finito = false;
   let h = testa(p) + `<div class="sub">Stringi i bulloni a croce nell'ordine dei numeri: così il pezzo si appoggia in modo uniforme.</div><div class="mg" id="mgb" style="width:220px;height:220px"></div><div class="barra"><i id="mgt" style="width:100%;background:var(--ok)"></i></div><div class="msg" id="mgmsg"></div><button class="b sec" data-act="chiudi">Lascia stare</button>`;
   modale(h);
   const box = $('#mgb');
@@ -846,7 +852,7 @@ function riprova(f) {
 }
 function mgRegola(p, cb) {
   const P = PEZZI[p];
-  const larg = (S.attrezzi.dinamo ? 20 : 16) + (S.attrezzi.compressore ? 2 : 0);
+  const larg = TR().facile ? 55 : (S.attrezzi.dinamo ? 20 : 16) + (S.attrezzi.compressore ? 2 : 0);
   const z0 = 10 + rnd() * (80 - larg);
   let tent = 3, finito = false, x = 0, dir = 1, vel = 70 + rnd() * 30;
   const h = testa(p) + `<div class="sub">${P.nota || 'Ferma l\'ago nella zona verde.'}</div><div class="mg reg" id="mgr" style="width:100%"><div class="z" style="left:${z0}%;width:${larg}%"></div><div class="ago" id="ago"></div></div><div class="sub" id="mgtent">Tentativi: 3</div><div class="msg" id="mgmsg"></div><button class="b" id="ferma" style="width:100%;padding:14px;font-size:17px;margin-bottom:8px">✋ Ferma</button><button class="b sec" data-act="chiudi">Lascia stare</button>`;
@@ -877,7 +883,7 @@ function mgRegola(p, cb) {
 function mgTieni(p, cb) {
   const P = PEZZI[p];
   const col = p === 'olio' ? '#c9a227' : p === 'liqfreni' ? '#d9c98a' : p === 'refrigerante' ? '#2fbf71' : '#' + 'e0484f';
-  const MIN = 55 + Math.round(rnd() * 10), MAX = MIN + 16;
+  const MIN = TR().facile ? 35 : 55 + Math.round(rnd() * 10), MAX = TR().facile ? 92 : MIN + 16;
   let liv = 0, giu = false, finito = false;
   const h = testa(p) + `<div class="sub">${P.nota || ''} Tieni premuto per versare e lascia tra le due righe.</div><div class="serb"><div class="liq" id="liq" style="background:${col}"></div><div class="lin" style="bottom:${MAX}%">MAX</div><div class="lin" style="bottom:${MIN}%">MIN</div></div><div class="msg" id="mgmsg"></div><button class="b" id="versa" style="width:100%;padding:14px;font-size:17px;margin-bottom:8px;touch-action:none">🫗 Tieni premuto</button><button class="b sec" data-act="chiudi">Lascia stare</button>`;
   modale(h);
@@ -912,7 +918,7 @@ function mgDiagnosi(lav, cb) {
   const opz = shuffle([giusto].concat(esche));
   let errori = 0, finito = false;
   let h = `<h3>🩺 Trova il guasto</h3><div class="spieg">${c.nome}: «${c.sintomo}»<br><span class="sub">${nomeMoto(m)} · ${m.inj ? 'iniezione elettronica' : 'carburatore'}</span></div><div class="sub">Qual è il pezzo da controllare?</div>`;
-  for (const p of opz) h += `<button class="opz" data-p="${p}">${PEZZI[p].nome}</button>`;
+  for (const p of opz) h += `<button class="opz" data-p="${p}"${TR().facile && p === giusto ? ' style="border:2px solid var(--ok)"' : ''}>${PEZZI[p].nome}${TR().facile && p === giusto ? ' 👈' : ''}</button>`;
   h += `<div class="msg" id="mgmsg"></div><div class="spieg" id="mgsp" hidden></div><button class="b sec" data-act="chiudi">Lascia stare</button>`;
   modale(h);
   document.querySelectorAll('.opz').forEach(b => b.addEventListener('click', () => {
@@ -967,11 +973,73 @@ document.addEventListener('click', ev => {
       try { const o = JSON.parse(decodeURIComponent(escape(atob($('#salvtxt').value.trim())))); if (o.v !== 1) throw 0; S = o; chiudiModale(); toast('Partita caricata'); salva(); dirty(); } catch (e) { toast('Codice non valido'); }
       break;
     }
+    case 'codice': usaCodice($('#codice').value); break;
+    case 'trucchi': menuTrucchi(); break;
+    case 'trT': { const k = d.k; const T = TR(); if (k === 'tempo') T.tempo = T.tempo === 1 ? 2 : T.tempo === 2 ? 10 : 1; else T[k] = !T[k]; dirty(); menuTrucchi(); break; }
+    case 'trA': azioneTrucco(d.k); menuTrucchi(); break;
     case 'reset': if (el.dataset.ok) { S = nuovoStato(); salva(); chiudiModale(); dirty(); toast('Nuova partita'); } else { el.dataset.ok = 1; el.textContent = 'Sicuro? Premi ancora'; } break;
   }
 });
+/* ---------- TRUCCHI ---------- */
+const CODICI = {
+  '1234': ['Apre il menu trucchi', () => { TR().menu = true; menuTrucchi(); return 'Menu trucchi sbloccato!'; }],
+  'SOLDI': ['Soldi infiniti (acceso/spento)', () => { TR().soldiInf = !TR().soldiInf; return 'Soldi infiniti ' + (TR().soldiInf ? 'accesi' : 'spenti'); }],
+  'FAMA': ['+5 livelli di fama', () => azioneTrucco('fama')],
+  'TURBO': ['Tempo ×1 → ×2 → ×10', () => { const T = TR(); T.tempo = T.tempo === 1 ? 2 : T.tempo === 2 ? 10 : 1; return 'Tempo ×' + T.tempo; }],
+  'RAPIDO': ['Meccanici istantanei', () => { TR().mecIst = !TR().mecIst; return 'Meccanici istantanei ' + (TR().mecIst ? 'accesi' : 'spenti'); }],
+  'RAFFICA': ['Clienti a raffica', () => { TR().raffica = !TR().raffica; return 'Clienti a raffica ' + (TR().raffica ? 'accesi' : 'spenti'); }],
+  'FACILE': ['Minigiochi facili', () => { TR().facile = !TR().facile; return 'Minigiochi facili ' + (TR().facile ? 'accesi' : 'spenti'); }],
+  'AUTO': ['Minigiochi vinti da soli', () => { TR().auto = !TR().auto; return 'Vittoria automatica ' + (TR().auto ? 'accesa' : 'spenta'); }],
+  'PILOTA': ['Vinci sempre le gare', () => { TR().vinci = !TR().vinci; return 'Vinci sempre ' + (TR().vinci ? 'acceso' : 'spento'); }],
+  'GARAGE': ['Tutte le sedi, gli attrezzi, i ponti e i meccanici', () => azioneTrucco('garage')],
+  'MOTO': ['Moto da gara +10 livelli', () => azioneTrucco('moto')],
+  'MONDIALE': ['Salta al Campionato Mondiale', () => azioneTrucco('mondiale')],
+};
+function usaCodice(txt) {
+  const c = String(txt || '').trim().toUpperCase();
+  const x = CODICI[c];
+  if (!x) { toast('Codice sbagliato'); vibra(80); return; }
+  const r = x[1](); if (r) toast('😈 ' + r, true); vibra(30); dirty();
+  const i = $('#codice'); if (i) i.value = '';
+}
+function azioneTrucco(k) {
+  const T = TR();
+  if (k === 'fama') { const l = famaLvl() + 5; S.fama = Math.max(S.fama, sogliaFama(l)); dirty(); return 'Fama livello ' + l; }
+  if (k === 'garage') {
+    for (const a of ATTREZZI) S.attrezzi[a.id] = true;
+    S.sede = SEDI.length - 1; S.fama = Math.max(S.fama, sogliaFama(SEDI[S.sede].fama));
+    while (S.ponti.length < SEDI[S.sede].ponti) S.ponti.push({ mecc: null, lav: null });
+    const usati = S.ponti.filter(p => p.mecc).map(p => p.mecc.nome);
+    S.ponti.forEach((P, i) => { if (!P.mecc) { const n = NOMI_MECC.find(x => !usati.includes(x)) || ('Meccanico ' + (i + 1)); usati.push(n); P.mecc = { nome: n, lvl: 0 }; } });
+    dirty(); return 'Officina al completo!';
+  }
+  if (k === 'squadra' || k === 'moto' || k === 'mondiale') {
+    if (!S.squadra) { S.squadra = { stat: { motore: 0, ciclistica: 0, freni: 0, gomme: 0 }, pilota: 0, tier: 0, gara: 0, punti: new Array(12).fill(0), ultimo: null, colore: pick(COLORI) }; }
+    if (k === 'moto') { for (const s of STAT_CORSA) S.squadra.stat[s.id] += 10; S.squadra.pilota += 10; dirty(); return 'Moto da gara +10 livelli'; }
+    if (k === 'mondiale') { if (S.squadra.tier < 3) { S.squadra.tier = 3; S.squadra.gara = 0; S.squadra.punti = new Array(12).fill(0); } dirty(); return 'Sei al Campionato Mondiale!'; }
+    dirty(); return 'Squadra corse pronta';
+  }
+  if (k === 'mecc') { S.ponti.forEach(P => { if (P.mecc) P.mecc.lvl += 5; }); dirty(); return 'Meccanici +5 livelli'; }
+}
+function menuTrucchi() {
+  const T = TR();
+  const sw = (k, nome, desc) => `<div class="riga" style="padding:7px 0;border-top:1px solid #353a42"><div class="sp"><div class="tit">${nome}</div><div class="sub">${desc}</div></div><button class="b pic ${T[k] ? 'ok' : 'sec'}" data-act="trT" data-k="${k}">${k === 'tempo' ? '×' + T.tempo : T[k] ? 'Acceso' : 'Spento'}</button></div>`;
+  const az = (k, nome) => `<button class="b sec pic" data-act="trA" data-k="${k}" style="margin:3px 3px 3px 0">${nome}</button>`;
+  let h = `<h3>😈 Trucchi</h3>`;
+  h += sw('soldiInf', '♾️ Soldi infiniti', 'Comprare e i ricambi non costano nulla');
+  h += sw('tempo', '⏩ Tempo veloce', 'Tocca per passare da ×1 a ×2 a ×10');
+  h += sw('mecIst', '⚡ Meccanici istantanei', 'Finiscono ogni pezzo in un attimo');
+  h += sw('raffica', '🧑 Clienti a raffica', 'Arriva un cliente ogni 0,3 secondi');
+  h += sw('facile', '🍰 Minigiochi facili', 'Zona verde enorme, più tempo, la risposta giusta indicata');
+  h += sw('auto', '🤖 Minigiochi vinti da soli', '«Fai tu» finisce subito il lavoro');
+  h += sw('vinci', '🥇 Vinci sempre le gare', 'Il tuo pilota arriva sempre primo');
+  h += `<div style="margin-top:8px">${az('fama', '⭐ +5 fama')}${az('garage', '🏟️ Officina al completo')}${az('mecc', '👷 Meccanici +5')}${az('squadra', '🏁 Squadra corse')}${az('moto', '🏍️ Moto da gara +10')}${az('mondiale', '🌐 Salta al Mondiale')}</div>`;
+  h += `<div class="nota" style="margin-top:10px"><b>Codici</b> (da scrivere nella casella del menu ⚙️):<br>${Object.entries(CODICI).map(([c, x]) => '<b>' + c + '</b> ' + x[0]).join('<br>')}</div>`;
+  h += `<button class="b" data-act="chiudi" style="margin-top:10px">Chiudi</button>`;
+  modale(h);
+}
 function menu() {
-  modale(`<h3>⚙️ Partita</h3><p class="sub">La partita si salva da sola su questo dispositivo. Per spostarla (per esempio dal browser all'app) copia il codice e incollalo dall'altra parte.</p><textarea id="salvtxt" placeholder="Incolla qui un codice per caricare"></textarea><div class="riga" style="gap:6px;margin:8px 0;flex-wrap:wrap"><button class="b pic" data-act="esporta">Copia codice</button><button class="b pic sec" data-act="importa">Carica codice</button></div><p class="sub">Officina Moto · un gioco di Massi</p><div class="riga" style="gap:6px"><button class="b sec" data-act="chiudi">Chiudi</button><button class="b sec pic" style="color:var(--ko)" data-act="reset">Ricomincia da zero</button></div>`);
+  modale(`<h3>⚙️ Partita</h3><p class="sub">La partita si salva da sola su questo dispositivo. Per spostarla (per esempio dal browser all'app) copia il codice e incollalo dall'altra parte.</p><textarea id="salvtxt" placeholder="Incolla qui un codice per caricare"></textarea><div class="riga" style="gap:6px;margin:8px 0;flex-wrap:wrap"><button class="b pic" data-act="esporta">Copia codice</button><button class="b pic sec" data-act="importa">Carica codice</button></div><div class="riga" style="gap:6px;margin:10px 0"><input id="codice" placeholder="Codice segreto" autocomplete="off" style="flex:1;min-width:0;background:#1d2026;color:var(--txt);border:1px solid #444b55;border-radius:8px;padding:9px;font-size:15px;text-transform:uppercase"><button class="b pic" data-act="codice">Usa</button></div>${TR().menu ? '<button class="b sec" data-act="trucchi" style="width:100%;margin-bottom:8px">😈 Menu trucchi</button>' : ''}<p class="sub">Officina Moto · un gioco di Massi</p><div class="riga" style="gap:6px"><button class="b sec" data-act="chiudi">Chiudi</button><button class="b sec pic" style="color:var(--ko)" data-act="reset">Ricomincia da zero</button></div>`);
 }
 pan.addEventListener('pointerdown', () => { dita = true; });
 window.addEventListener('pointerup', () => { dita = false; });
@@ -1132,7 +1200,7 @@ function ciclo(now) {
   let dt = (now - ultimoT) / 1000; ultimoT = now;
   if (dt > 5) { const via = (Date.now() - S.ultimo) / 1000; if (via > 5) applicaAssenza(via, true); S.ultimo = Date.now(); dt = 0; }
   dt = Math.min(dt, 0.25);
-  tick(dt);
+  tick(dt * (TR().tempo || 1));
   disegnaScena(now / 1000, dt);
   salvaT += dt; if (salvaT > 5) { salvaT = 0; salva(); }
   renderT += dt;
@@ -1161,3 +1229,4 @@ document.addEventListener('visibilitychange', () => {
   ridim(); render();
   requestAnimationFrame(ciclo);
 })();
+document.addEventListener('keydown', ev => { if (ev.key === 'Enter' && ev.target && ev.target.id === 'codice') usaCodice(ev.target.value); });
